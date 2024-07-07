@@ -220,11 +220,12 @@ app.MapPost("/{pageName}", async (HttpContext context, Wiki wiki, Render render,
     if (!isOk)
     {
         app.Logger.LogError(ex, "Problem in saving page");
-        return Results.Problem("Progblem in saving page");
+        return Results.Problem("Problem in saving page");
     }
 
     return Results.Redirect($"/{p!.Name}");
 });
+
 
 await app.RunAsync();
 
@@ -368,11 +369,14 @@ static string BuildForm(PageInput input, string path, AntiforgeryTokenSet antiFo
       );
 
     var attachmentField = Div
-      .Append(Label.Class("uk-form-label").Append(nameof(input.Attachment)))
-      .Append(Div.Attribute("uk-form-custom", "target: true")
-        .Append(Input.File.Name("Attachment"))
-        .Append(Input.Text.Class("uk-input uk-form-width-large").Attribute("placeholder", "Click to select file").ToggleAttribute("disabled", true))
-      );
+      .Append(Label.Class("uk-form-label").Append("Attachments"))
+      .Append(Div.Id("attachment-fields")
+        .Append(Div.Attribute("uk-form-custom", "target: true").Class("attachment-field")
+          .Append(Input.File.Name("Attachments").Class("attachment-input"))
+          .Append(Input.Text.Class("uk-input uk-form-width-large").Attribute("placeholder", "Click to select file").ToggleAttribute("disabled", true))
+        )
+      )
+      .Append(Button.Class("uk-button uk-button-default").Attribute("type", "button").Attribute("onclick", "addAttachmentField()").Append("Add New Attachment"));
 
     if (modelState is object && !modelState.IsValid)
     {
@@ -416,6 +420,7 @@ static string BuildForm(PageInput input, string path, AntiforgeryTokenSet antiFo
     return form.ToHtmlString();
 }
 
+
 class Render
 {
     static string KebabToNormalCase(string txt) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(txt.Replace('-', ' '));
@@ -439,6 +444,30 @@ class Render
           element.select();
           document.execCommand(""copy"");
         }
+
+        function addAttachmentField() {
+            var attachmentFieldsDiv = document.getElementById('attachment-fields');
+            var newAttachmentDiv = document.createElement('div');
+            newAttachmentDiv.className = 'uk-form-custom attachment-field';
+            newAttachmentDiv.setAttribute('uk-form-custom', 'target: true');
+            
+            var newFileInput = document.createElement('input');
+            newFileInput.setAttribute('type', 'file');
+            newFileInput.setAttribute('name', 'Attachments');
+            newFileInput.className = 'attachment-input';
+            
+            var newTextInput = document.createElement('input');
+            newTextInput.className = 'uk-input uk-form-width-large';
+            newTextInput.setAttribute('placeholder', 'Click to select file');
+            newTextInput.setAttribute('disabled', 'true');
+            
+            newAttachmentDiv.appendChild(newFileInput);
+            newAttachmentDiv.appendChild(newTextInput);
+            
+            attachmentFieldsDiv.appendChild(newAttachmentDiv);
+        }
+
+
         </script>"
     };
 
@@ -593,7 +622,6 @@ class Wiki
                 .FirstOrDefault();
     }
 
-    // Save or update a wiki page. Cache(AllPagesKey) will be destroyed.
     public (bool isOk, Page? page, Exception? ex) SavePage(PageInput input)
     {
         try
@@ -607,19 +635,25 @@ class Wiki
             var sanitizer = new HtmlSanitizer();
             var properName = input.Name.ToString().Trim().Replace(' ', '-').ToLower();
 
-            Attachment? attachment = null;
-            if (!string.IsNullOrWhiteSpace(input.Attachment?.FileName))
+            // Process attachments
+            List<Attachment> attachments = new List<Attachment>();
+            foreach (var file in input.Attachments)
             {
-                attachment = new Attachment
-                (
-                    FileId: Guid.NewGuid().ToString(),
-                    FileName: input.Attachment.FileName,
-                    MimeType: input.Attachment.ContentType,
-                    LastModifiedUtc: Timestamp()
-                );
+                if (file is not null && file.Length > 0)
+                {
+                    var attachment = new Attachment
+                    (
+                        FileId: Guid.NewGuid().ToString(),
+                        FileName: file.FileName,
+                        MimeType: file.ContentType,
+                        LastModifiedUtc: Timestamp()
+                    );
 
-                using var stream = input.Attachment.OpenReadStream();
-                var res = db.FileStorage.Upload(attachment.FileId, input.Attachment.FileName, stream);
+                    using var stream = file.OpenReadStream();
+                    var res = db.FileStorage.Upload(attachment.FileId, file.FileName, stream);
+
+                    attachments.Add(attachment);
+                }
             }
 
             if (existingPage is not object)
@@ -627,12 +661,10 @@ class Wiki
                 var newPage = new Page
                 {
                     Name = sanitizer.Sanitize(properName),
-                    Content = input.Content, //Do not sanitize on input because it will impact some markdown tag such as >. We do it on the output instead.
-                    LastModifiedUtc = Timestamp()
+                    Content = input.Content, // Do not sanitize on input because it will impact some markdown tag such as >. We do it on the output instead.
+                    LastModifiedUtc = Timestamp(),
+                    Attachments = attachments
                 };
-
-                if (attachment is object)
-                    newPage.Attachments.Add(attachment);
 
                 coll.Insert(newPage);
 
@@ -641,20 +673,15 @@ class Wiki
             }
             else
             {
-                var updatedPage = existingPage with
-                {
-                    Name = sanitizer.Sanitize(properName),
-                    Content = input.Content, //Do not sanitize on input because it will impact some markdown tag such as >. We do it on the output instead.
-                    LastModifiedUtc = Timestamp()
-                };
+                existingPage.Name = sanitizer.Sanitize(properName);
+                existingPage.Content = input.Content; // Do not sanitize on input because it will impact some markdown tag such as >. We do it on the output instead.
+                existingPage.LastModifiedUtc = Timestamp();
+                existingPage.Attachments.AddRange(attachments);
 
-                if (attachment is object)
-                    updatedPage.Attachments.Add(attachment);
-
-                coll.Update(updatedPage);
+                coll.Update(existingPage);
 
                 _cache.Remove(AllPagesKey);
-                return (true, updatedPage, null);
+                return (true, existingPage, null);
             }
         }
         catch (Exception ex)
@@ -663,6 +690,7 @@ class Wiki
             return (false, null, ex);
         }
     }
+
 
     public (bool isOk, Page? p, Exception? ex) DeleteAttachment(int pageId, string id)
     {
@@ -782,22 +810,39 @@ record Attachment
     DateTime LastModifiedUtc
 );
 
-record PageInput(int? Id, string Name, string Content, IFormFile? Attachment)
+public record PageInput(int? Id, string Name, string Content, List<IFormFile> Attachments)
 {
     public static PageInput From(IFormCollection form)
     {
-        var (id, name, content) = (form["Id"], form["Name"], form["Content"]);
+        var id = form["Id"];
+        var name = form["Name"];
+        var content = form["Content"];
+        var files = form.Files.GetFiles("Attachments");
 
         int? pageId = null;
 
         if (!StringValues.IsNullOrEmpty(id))
-            pageId = Convert.ToInt32(id);
+        {
+            if (int.TryParse(id, out int parsedId))
+            {
+                pageId = parsedId;
+            }
+            // Handle case where id is not a valid integer if needed
+        }
 
-        IFormFile? file = form.Files["Attachment"];
+        var attachments = new List<IFormFile>();
+        foreach (var file in files)
+        {
+            if (file.Length > 0)
+            {
+                attachments.Add(file);
+            }
+        }
 
-        return new PageInput(pageId, name!, content!, file);
+        return new PageInput(pageId, name, content, attachments);
     }
 }
+
 
 class PageInputValidator : AbstractValidator<PageInput>
 {
