@@ -10,9 +10,11 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Primitives;
 using Scriban;
+using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using static HtmlBuilders.HtmlTags;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 const string DisplayDateFormat = "MMMM dd, yyyy";
 const string HomePageName = "home-page";
@@ -471,6 +473,28 @@ class Render
         </script>"
     };
 
+
+    static string[] DefaultFoot() => new[]
+    {
+        @"<script>
+            function toggleDarkMode()
+            {
+                var body = document.body;
+                body.classList.toggle('dark-mode');
+
+                var isDarkMode = body.classList.contains('dark-mode');
+                localStorage.setItem('dark-mode', isDarkMode);
+            }
+
+            var isDarkMode = localStorage.getItem('dark-mode');
+            if (isDarkMode === 'true') {
+                document.body.classList.add('dark-mode');
+            }
+
+            document.getElementById('dark-mode-toggle').addEventListener('click', toggleDarkMode);
+        </script>"
+    };
+
     (Template head, Template body, Template layout) _templates = (
       head: Scriban.Template.Parse(
         """
@@ -479,11 +503,84 @@ class Render
           <title>{{ title }}</title>
           <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/css/uikit.min.css" />
           {{ header }}
+
           <style>
-            .last-modified { font-size: small; }
-            a:visited { color: blue; }
-            a:link { color: red; }
+
+          :root {
+            --primary-color: #586069;
+            --secondary-color: #B6C2CF;
+            --background-color: #f8f9fa;
+            --text-color: #333;
+            --link-color: #74808c;
+          }
+
+          body {
+              min-height: 100vh;
+              background-color: var(--background-color);
+              color: var(--text-color);
+              transition: background-color 0.3s ease, color 0.3s ease;
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              line-height: 1.6;
+              margin: 0;
+              padding: 0;
+          }
+
+          nav.uk-navbar-container {
+              margin-top: 0;
+          }
+
+          a:link, a:visited {
+              color: var(--link-color);
+              text-decoration: none;
+              transition: color 0.3s ease;
+          }
+
+          a:hover {
+              text-decoration: underline;
+          }
+
+          h1 {
+              font-size: 2.5rem;
+              color: var(--primary-color);
+              margin-bottom: 1rem;
+          }
+
+          .uk-button {
+              transition: background-color 0.3s ease, color 0.3s ease;
+              background-color: var(--secondary-color);
+              color: #2C333A;
+          }
+
+          .uk-button:hover {
+              background-color: #ccc;
+              cursor: pointer;
+          }
+
+          .uk-label {
+              background-color: var(--secondary-color);
+              color: #2C333A;
+          }
+
+          .uk-button-secondary:hover {
+              background-color: #999;
+          }
+
+          body.dark-mode {
+              background-color: #333;
+              color: #dae1e8;
+          }
+
+          body.dark-mode h1 {
+              color: var(--secondary-color);
+          }
+
+          body.dark-mode .last-modified {
+              color: #ddd;
+          }
+          
+
           </style>
+          
           """),
       body: Scriban.Template.Parse("""
                 <nav class="uk-navbar-container">
@@ -507,15 +604,16 @@ class Render
                 </nav>
                 {{ if at_side_panel != "" }}
                   <div class="uk-container uk-padding-small">
-                  <div uk-grid>
-                    <div class="uk-width-1-1@s uk-width-4-5@m">
-                      <h1>{{ page_name }}</h1>
-                      {{ content }}
-                    </div>
-                    <div class="uk-width-1-1@s uk-width-1-5@m">
-                      {{ at_side_panel }}
-                    </div>
-                  </div>
+                      <div uk-grid>
+                          <div class="uk-width-1-1@s uk-width-4-5@m">
+                              <h1>{{ page_name }}</h1>
+                              <button id="dark-mode-toggle" class="uk-button">Toggle Read Mode</button>
+                              {{ content }}
+                          </div>
+                          <div class="uk-width-1-1@s uk-width-1-5@m">
+                              {{ at_side_panel }}
+                          </div>
+                      </div>
                   </div>
                 {{ else }}
                   <div class="uk-container uk-padding-small">
@@ -523,7 +621,7 @@ class Render
                     {{ content }}
                   </div>
                 {{ end }}
-                      
+
                 <script src="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/js/uikit.min.js"></script>
                 <script src="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/js/uikit-icons.min.js"></script>
                 {{ at_foot }}
@@ -565,7 +663,7 @@ class Render
             PageName = KebabToNormalCase(title),
             Content = string.Join("\r", atBody?.Invoke() ?? new[] { "" }),
             AtSidePanel = string.Join("\r", atSidePanel?.Invoke() ?? new[] { "" }),
-            AtFoot = string.Join("\r", atFoot?.Invoke() ?? new[] { "" })
+            AtFoot = string.Join("\r\n", atFoot?.Invoke() ?? DefaultFoot())
         });
 
         return new HtmlString(_templates.layout.Render(new { head, body }));
