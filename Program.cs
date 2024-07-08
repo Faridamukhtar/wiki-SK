@@ -20,7 +20,8 @@ const string DisplayDateFormat = "MMMM dd, yyyy";
 const string HomePageName = "home-page";
 const string HtmlMime = "text/html";
 
-var builder = WebApplication.CreateBuilder();
+var builder = WebApplication.CreateBuilder(args);
+
 builder.Services
   .AddSingleton<Wiki>()
   .AddSingleton<Render>()
@@ -30,6 +31,10 @@ builder.Services
 builder.Logging.AddConsole().SetMinimumLevel(LogLevel.Warning);
 
 var app = builder.Build();
+
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+app.UseRouting();
 
 // Load home page
 app.MapGet("/", (Wiki wiki, Render render) =>
