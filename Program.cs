@@ -47,6 +47,7 @@ app.MapGet("/", (Wiki wiki, Render render) =>
     return Results.Text(render.BuildPage(HomePageName, atBody: () =>
         new[]
         {
+          "<button id=\"dark-mode-toggle\" class=\"uk-button\">Toggle Read Mode</button>",
           RenderPageContent(page),
           RenderPageAttachments(page),
           A.Href($"/edit?pageName={HomePageName}").Class("uk-button uk-button-default uk-button-small").Append("Edit").ToHtmlString()
@@ -122,6 +123,7 @@ app.MapGet("/{pageName}", (string pageName, HttpContext context, Wiki wiki, Rend
         return Results.Text(render.BuildPage(pageName, atBody: () =>
           new[]
           {
+            "<button id=\"dark-mode-toggle\" class=\"uk-button\">Toggle Read Mode</button>",
             RenderPageContent(page),
             RenderPageAttachments(page),
             Div.Class("last-modified").Append("Last modified: " + page!.LastModifiedUtc.ToString(DisplayDateFormat)).ToHtmlString(),
@@ -612,7 +614,6 @@ class Render
                       <div uk-grid>
                           <div class="uk-width-1-1@s uk-width-4-5@m">
                               <h1>{{ page_name }}</h1>
-                              <button id="dark-mode-toggle" class="uk-button">Toggle Read Mode</button>
                               {{ content }}
                           </div>
                           <div class="uk-width-1-1@s uk-width-1-5@m">
